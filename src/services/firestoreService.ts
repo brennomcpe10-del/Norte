@@ -11,7 +11,7 @@ import {
   getDoc,
   orderBy,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import {
   CategoryItem,
   DailyLog,
@@ -56,14 +56,15 @@ export class FirestoreService {
     onSuccess: (tasks: UserTask[]) => void,
     onError?: (error: Error) => void
   ) {
+    const key = `meu_norte_tasks_${userId}`;
+    const deliverLocal = () => {
+      const tasks = getLocal<UserTask[]>(key, []);
+      onSuccess(tasks);
+    };
+    deliverLocal();
+
     if (isGuestUser(userId)) {
-      const key = `meu_norte_tasks_${userId}`;
-      const deliver = () => {
-        const tasks = getLocal<UserTask[]>(key, []);
-        onSuccess(tasks);
-      };
-      deliver();
-      const listener = () => deliver();
+      const listener = () => deliverLocal();
       window.addEventListener(`meu_norte_tasks_${userId}`, listener);
       return () => window.removeEventListener(`meu_norte_tasks_${userId}`, listener);
     }
@@ -76,10 +77,12 @@ export class FirestoreService {
         snapshot.forEach((docSnap) => {
           tasks.push({ id: docSnap.id, ...(docSnap.data() as Omit<UserTask, 'id'>) });
         });
+        setLocal(key, tasks);
         onSuccess(tasks);
       },
       (err) => {
-        console.error('Firestore tasks error:', err);
+        console.warn('Firestore tasks snapshot offline mode:', err?.message || err);
+        deliverLocal();
         if (onError) onError(err);
       }
     );
@@ -89,108 +92,74 @@ export class FirestoreService {
   static async saveTask(userId: string, task: Partial<UserTask> & { id?: string }): Promise<string> {
     const now = new Date().toISOString();
     const taskId = task.id || `task-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_tasks_${userId}`;
-      const tasks = getLocal<UserTask[]>(key, []);
-      const idx = tasks.findIndex((t) => t.id === taskId);
-      const existing = idx >= 0 ? tasks[idx] : null;
-      const updated: UserTask = {
-        title: '',
-        category: 'Geral',
-        status: 'inbox',
-        createdAt: now,
-        ...existing,
-        ...task,
-        id: taskId,
-        updatedAt: now,
-      } as UserTask;
-
-      if (idx >= 0) {
-        tasks[idx] = updated;
-      } else {
-        tasks.push(updated);
-      }
-      setLocal(key, tasks);
-      triggerLocalUpdate(userId, 'tasks');
-      return taskId;
-    }
-
-    const docRef = doc(db, 'users', userId, 'tasks', taskId);
-    const data: Record<string, any> = {
+    const key = `meu_norte_tasks_${userId}`;
+    const tasks = getLocal<UserTask[]>(key, []);
+    const idx = tasks.findIndex((t) => t.id === taskId);
+    const existing = idx >= 0 ? tasks[idx] : null;
+    const updated: UserTask = {
+      title: '',
+      category: 'Geral',
+      status: 'inbox',
+      createdAt: now,
+      ...existing,
       ...task,
       id: taskId,
       updatedAt: now,
-    };
+    } as UserTask;
 
-    if (!task.createdAt) {
-      data.createdAt = now;
+    if (idx >= 0) {
+      tasks[idx] = updated;
+    } else {
+      tasks.push(updated);
     }
-    if (!task.status) {
-      data.status = 'inbox';
+    setLocal(key, tasks);
+    triggerLocalUpdate(userId, 'tasks');
+
+    if (isGuestUser(userId)) {
+      return taskId;
     }
 
-    // Clean undefined fields so Firestore doesn't reject
-    Object.keys(data).forEach((k) => data[k] === undefined && delete data[k]);
+    try {
+      const docRef = doc(db, 'users', userId, 'tasks', taskId);
+      const data: Record<string, any> = {
+        ...task,
+        id: taskId,
+        updatedAt: now,
+      };
 
-    await setDoc(docRef, data, { merge: true });
+      if (!task.createdAt) {
+        data.createdAt = now;
+      }
+      if (!task.status) {
+        data.status = 'inbox';
+      }
+
+      // Clean undefined fields so Firestore doesn't reject
+      Object.keys(data).forEach((k) => data[k] === undefined && delete data[k]);
+
+      await setDoc(docRef, data, { merge: true });
+    } catch (err: any) {
+      console.warn('Task saved locally (Firestore offline/pending):', err?.message || err);
+    }
     return taskId;
   }
 
   // Mark task completed
   static async completeTask(userId: string, task: UserTask): Promise<void> {
     const now = new Date().toISOString();
-
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_tasks_${userId}`;
-      const tasks = getLocal<UserTask[]>(key, []);
-      const idx = tasks.findIndex((t) => t.id === task.id);
-      if (idx >= 0) {
-        tasks[idx] = {
-          ...tasks[idx],
-          status: 'completed',
-          completedAt: now,
-          updatedAt: now,
-        };
-        setLocal(key, tasks);
-        triggerLocalUpdate(userId, 'tasks');
-      }
-
-      if (task.isRecurring && task.recurrenceRule) {
-        const nextDate = new Date();
-        if (task.recurrenceRule === 'weekly') {
-          nextDate.setDate(nextDate.getDate() + 7);
-        } else if (task.recurrenceRule === 'biweekly') {
-          nextDate.setDate(nextDate.getDate() + 14);
-        } else {
-          nextDate.setDate(nextDate.getDate() + 1);
-        }
-        const yyyy = nextDate.getFullYear();
-        const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
-        const dd = String(nextDate.getDate()).padStart(2, '0');
-        const nextPlannedDate = `${yyyy}-${mm}-${dd}`;
-
-        await this.saveTask(userId, {
-          title: task.title,
-          category: task.category,
-          status: 'planned',
-          plannedDate: nextPlannedDate,
-          isRecurring: true,
-          recurrenceRule: task.recurrenceRule,
-          recurrenceParentId: task.recurrenceParentId || task.id,
-          notes: task.notes,
-          objectiveId: task.objectiveId,
-        });
-      }
-      return;
+    const key = `meu_norte_tasks_${userId}`;
+    const tasks = getLocal<UserTask[]>(key, []);
+    const idx = tasks.findIndex((t) => t.id === task.id);
+    if (idx >= 0) {
+      tasks[idx] = {
+        ...tasks[idx],
+        status: 'completed',
+        completedAt: now,
+        updatedAt: now,
+      };
+      setLocal(key, tasks);
+      triggerLocalUpdate(userId, 'tasks');
     }
-
-    const docRef = doc(db, 'users', userId, 'tasks', task.id);
-    await updateDoc(docRef, {
-      status: 'completed',
-      completedAt: now,
-      updatedAt: now,
-    });
 
     if (task.isRecurring && task.recurrenceRule) {
       const nextDate = new Date();
@@ -218,6 +187,19 @@ export class FirestoreService {
         objectiveId: task.objectiveId,
       });
     }
+
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'tasks', task.id);
+      await updateDoc(docRef, {
+        status: 'completed',
+        completedAt: now,
+        updatedAt: now,
+      });
+    } catch (err: any) {
+      console.warn('Task completion saved locally (Firestore offline):', err?.message || err);
+    }
   }
 
   // Register task not completed with reason (Failure Reason)
@@ -232,62 +214,69 @@ export class FirestoreService {
     const postponedCount = (task.postponedCount || 0) + 1;
     const originalPlannedDate = task.originalPlannedDate || task.plannedDate;
 
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_tasks_${userId}`;
-      const tasks = getLocal<UserTask[]>(key, []);
-      const idx = tasks.findIndex((t) => t.id === task.id);
-      if (idx >= 0) {
-        tasks[idx] = {
-          ...tasks[idx],
-          status: replanDate ? 'planned' : 'not_completed',
-          plannedDate: replanDate || tasks[idx].plannedDate,
+    const key = `meu_norte_tasks_${userId}`;
+    const tasks = getLocal<UserTask[]>(key, []);
+    const idx = tasks.findIndex((t) => t.id === task.id);
+    if (idx >= 0) {
+      tasks[idx] = {
+        ...tasks[idx],
+        status: replanDate ? 'planned' : 'not_completed',
+        plannedDate: replanDate || tasks[idx].plannedDate,
+        originalPlannedDate,
+        postponedCount,
+        failureReason: reason,
+        failureNotes: notes || '',
+        updatedAt: now,
+      };
+      setLocal(key, tasks);
+      triggerLocalUpdate(userId, 'tasks');
+    }
+
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'tasks', task.id);
+      if (replanDate) {
+        await updateDoc(docRef, {
+          status: 'planned',
+          plannedDate: replanDate,
           originalPlannedDate,
           postponedCount,
           failureReason: reason,
           failureNotes: notes || '',
           updatedAt: now,
-        };
-        setLocal(key, tasks);
-        triggerLocalUpdate(userId, 'tasks');
+        });
+      } else {
+        await updateDoc(docRef, {
+          status: 'not_completed',
+          originalPlannedDate,
+          postponedCount,
+          failureReason: reason,
+          failureNotes: notes || '',
+          updatedAt: now,
+        });
       }
-      return;
-    }
-
-    const docRef = doc(db, 'users', userId, 'tasks', task.id);
-    if (replanDate) {
-      await updateDoc(docRef, {
-        status: 'planned',
-        plannedDate: replanDate,
-        originalPlannedDate,
-        postponedCount,
-        failureReason: reason,
-        failureNotes: notes || '',
-        updatedAt: now,
-      });
-    } else {
-      await updateDoc(docRef, {
-        status: 'not_completed',
-        originalPlannedDate,
-        postponedCount,
-        failureReason: reason,
-        failureNotes: notes || '',
-        updatedAt: now,
-      });
+    } catch (err: any) {
+      console.warn('Incomplete task saved locally (Firestore offline):', err?.message || err);
     }
   }
 
   // Delete task
   static async deleteTask(userId: string, taskId: string): Promise<void> {
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_tasks_${userId}`;
-      const tasks = getLocal<UserTask[]>(key, []);
-      const filtered = tasks.filter((t) => t.id !== taskId);
-      setLocal(key, filtered);
-      triggerLocalUpdate(userId, 'tasks');
-      return;
+    const key = `meu_norte_tasks_${userId}`;
+    const tasks = getLocal<UserTask[]>(key, []);
+    const filtered = tasks.filter((t) => t.id !== taskId);
+    setLocal(key, filtered);
+    triggerLocalUpdate(userId, 'tasks');
+
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'tasks', taskId);
+      await deleteDoc(docRef);
+    } catch (err: any) {
+      console.warn('Task deletion saved locally (Firestore offline):', err?.message || err);
     }
-    const docRef = doc(db, 'users', userId, 'tasks', taskId);
-    await deleteDoc(docRef);
   }
 
   // Batch update task plan dates
@@ -296,37 +285,39 @@ export class FirestoreService {
     assignments: { taskId: string; assignedDate: string }[]
   ): Promise<void> {
     const now = new Date().toISOString();
-
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_tasks_${userId}`;
-      const tasks = getLocal<UserTask[]>(key, []);
-      const map = new Map(assignments.map((a) => [a.taskId, a.assignedDate]));
-      const updated = tasks.map((t) => {
-        if (map.has(t.id)) {
-          return {
-            ...t,
-            status: 'planned' as const,
-            plannedDate: map.get(t.id)!,
-            updatedAt: now,
-          };
-        }
-        return t;
-      });
-      setLocal(key, updated);
-      triggerLocalUpdate(userId, 'tasks');
-      return;
-    }
-
-    const batch = writeBatch(db);
-    assignments.forEach(({ taskId, assignedDate }) => {
-      const docRef = doc(db, 'users', userId, 'tasks', taskId);
-      batch.update(docRef, {
-        status: 'planned',
-        plannedDate: assignedDate,
-        updatedAt: now,
-      });
+    const key = `meu_norte_tasks_${userId}`;
+    const tasks = getLocal<UserTask[]>(key, []);
+    const map = new Map(assignments.map((a) => [a.taskId, a.assignedDate]));
+    const updated = tasks.map((t) => {
+      if (map.has(t.id)) {
+        return {
+          ...t,
+          status: 'planned' as const,
+          plannedDate: map.get(t.id)!,
+          updatedAt: now,
+        };
+      }
+      return t;
     });
-    await batch.commit();
+    setLocal(key, updated);
+    triggerLocalUpdate(userId, 'tasks');
+
+    if (isGuestUser(userId)) return;
+
+    try {
+      const batch = writeBatch(db);
+      assignments.forEach(({ taskId, assignedDate }) => {
+        const docRef = doc(db, 'users', userId, 'tasks', taskId);
+        batch.update(docRef, {
+          status: 'planned',
+          plannedDate: assignedDate,
+          updatedAt: now,
+        });
+      });
+      await batch.commit();
+    } catch (err: any) {
+      console.warn('Batch task plan saved locally (Firestore offline):', err?.message || err);
+    }
   }
 
   // Subscribe Routine
@@ -335,14 +326,15 @@ export class FirestoreService {
     onSuccess: (routine: FixedRoutineItem[]) => void,
     onError?: (error: Error) => void
   ) {
+    const key = `meu_norte_routine_${userId}`;
+    const deliverLocal = () => {
+      const items = getLocal<FixedRoutineItem[]>(key, DEFAULT_INITIAL_ROUTINE.map((r, i) => ({ ...r, id: `routine-${i}` })));
+      onSuccess(items);
+    };
+    deliverLocal();
+
     if (isGuestUser(userId)) {
-      const key = `meu_norte_routine_${userId}`;
-      const deliver = () => {
-        const items = getLocal<FixedRoutineItem[]>(key, DEFAULT_INITIAL_ROUTINE.map((r, i) => ({ ...r, id: `routine-${i}` })));
-        onSuccess(items);
-      };
-      deliver();
-      const listener = () => deliver();
+      const listener = () => deliverLocal();
       window.addEventListener(`meu_norte_routine_${userId}`, listener);
       return () => window.removeEventListener(`meu_norte_routine_${userId}`, listener);
     }
@@ -355,52 +347,63 @@ export class FirestoreService {
         snapshot.forEach((docSnap) => {
           items.push({ id: docSnap.id, ...(docSnap.data() as Omit<FixedRoutineItem, 'id'>) });
         });
+        setLocal(key, items);
         onSuccess(items);
       },
-      onError
+      (err) => {
+        console.warn('Firestore routine snapshot offline mode:', err?.message || err);
+        deliverLocal();
+        if (onError) onError(err);
+      }
     );
   }
 
   static async saveRoutineItem(userId: string, item: Partial<FixedRoutineItem> & { id?: string }): Promise<void> {
     const id = item.id || `routine-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_routine_${userId}`;
-      const routine = getLocal<FixedRoutineItem[]>(key, []);
-      const idx = routine.findIndex((r) => r.id === id);
-      const updated: FixedRoutineItem = {
-        id,
-        title: item.title || 'Rotina',
-        dayOfWeek: item.dayOfWeek !== undefined ? item.dayOfWeek : 1,
-        startTime: item.startTime || '08:00',
-        endTime: item.endTime || '12:00',
-        intensity: item.intensity || 'moderate',
-        ...item,
-      };
-      if (idx >= 0) {
-        routine[idx] = updated;
-      } else {
-        routine.push(updated);
-      }
-      setLocal(key, routine);
-      triggerLocalUpdate(userId, 'routine');
-      return;
+    const key = `meu_norte_routine_${userId}`;
+    const routine = getLocal<FixedRoutineItem[]>(key, []);
+    const idx = routine.findIndex((r) => r.id === id);
+    const updated: FixedRoutineItem = {
+      id,
+      title: item.title || 'Rotina',
+      dayOfWeek: item.dayOfWeek !== undefined ? item.dayOfWeek : 1,
+      startTime: item.startTime || '08:00',
+      endTime: item.endTime || '12:00',
+      intensity: item.intensity || 'moderate',
+      ...item,
+    };
+    if (idx >= 0) {
+      routine[idx] = updated;
+    } else {
+      routine.push(updated);
     }
+    setLocal(key, routine);
+    triggerLocalUpdate(userId, 'routine');
 
-    const docRef = doc(db, 'users', userId, 'routine', id);
-    await setDoc(docRef, { ...item, id }, { merge: true });
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'routine', id);
+      await setDoc(docRef, { ...item, id }, { merge: true });
+    } catch (err: any) {
+      console.warn('Routine item saved locally (Firestore offline):', err?.message || err);
+    }
   }
 
   static async deleteRoutineItem(userId: string, itemId: string): Promise<void> {
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_routine_${userId}`;
-      const routine = getLocal<FixedRoutineItem[]>(key, []);
-      setLocal(key, routine.filter((r) => r.id !== itemId));
-      triggerLocalUpdate(userId, 'routine');
-      return;
+    const key = `meu_norte_routine_${userId}`;
+    const routine = getLocal<FixedRoutineItem[]>(key, []);
+    setLocal(key, routine.filter((r) => r.id !== itemId));
+    triggerLocalUpdate(userId, 'routine');
+
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'routine', itemId);
+      await deleteDoc(docRef);
+    } catch (err: any) {
+      console.warn('Routine item deletion saved locally (Firestore offline):', err?.message || err);
     }
-    const docRef = doc(db, 'users', userId, 'routine', itemId);
-    await deleteDoc(docRef);
   }
 
   // Subscribe Daily Logs (Sleep, Energy, Mood, Bad Day)
@@ -409,14 +412,15 @@ export class FirestoreService {
     onSuccess: (logs: DailyLog[]) => void,
     onError?: (error: Error) => void
   ) {
+    const key = `meu_norte_dailyLogs_${userId}`;
+    const deliverLocal = () => {
+      const logs = getLocal<DailyLog[]>(key, []);
+      onSuccess(logs);
+    };
+    deliverLocal();
+
     if (isGuestUser(userId)) {
-      const key = `meu_norte_dailyLogs_${userId}`;
-      const deliver = () => {
-        const logs = getLocal<DailyLog[]>(key, []);
-        onSuccess(logs);
-      };
-      deliver();
-      const listener = () => deliver();
+      const listener = () => deliverLocal();
       window.addEventListener(`meu_norte_dailyLogs_${userId}`, listener);
       return () => window.removeEventListener(`meu_norte_dailyLogs_${userId}`, listener);
     }
@@ -429,45 +433,52 @@ export class FirestoreService {
         snapshot.forEach((docSnap) => {
           logs.push({ id: docSnap.id, ...(docSnap.data() as Omit<DailyLog, 'id'>) });
         });
+        setLocal(key, logs);
         onSuccess(logs);
       },
-      onError
+      (err) => {
+        console.warn('Firestore daily logs offline mode:', err?.message || err);
+        deliverLocal();
+        if (onError) onError(err);
+      }
     );
   }
 
   static async saveDailyLog(userId: string, log: Partial<DailyLog> & { date: string }): Promise<void> {
     const now = new Date().toISOString();
-
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_dailyLogs_${userId}`;
-      const logs = getLocal<DailyLog[]>(key, []);
-      const idx = logs.findIndex((l) => l.date === log.date);
-      const existing = idx >= 0 ? logs[idx] : null;
-      const updated: DailyLog = {
-        id: log.date,
-        date: log.date,
-        updatedAt: now,
-        ...existing,
-        ...log,
-      };
-      if (idx >= 0) {
-        logs[idx] = updated;
-      } else {
-        logs.push(updated);
-      }
-      setLocal(key, logs);
-      triggerLocalUpdate(userId, 'dailyLogs');
-      return;
-    }
-
-    const docRef = doc(db, 'users', userId, 'dailyLogs', log.date);
-    const data = {
-      ...log,
+    const key = `meu_norte_dailyLogs_${userId}`;
+    const logs = getLocal<DailyLog[]>(key, []);
+    const idx = logs.findIndex((l) => l.date === log.date);
+    const existing = idx >= 0 ? logs[idx] : null;
+    const updated: DailyLog = {
       id: log.date,
+      date: log.date,
       updatedAt: now,
+      ...existing,
+      ...log,
     };
-    Object.keys(data).forEach((k) => (data as any)[k] === undefined && delete (data as any)[k]);
-    await setDoc(docRef, data, { merge: true });
+    if (idx >= 0) {
+      logs[idx] = updated;
+    } else {
+      logs.push(updated);
+    }
+    setLocal(key, logs);
+    triggerLocalUpdate(userId, 'dailyLogs');
+
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'dailyLogs', log.date);
+      const data = {
+        ...log,
+        id: log.date,
+        updatedAt: now,
+      };
+      Object.keys(data).forEach((k) => (data as any)[k] === undefined && delete (data as any)[k]);
+      await setDoc(docRef, data, { merge: true });
+    } catch (err: any) {
+      console.warn('Daily log saved locally (Firestore offline):', err?.message || err);
+    }
   }
 
   // Subscribe Journal
@@ -476,14 +487,15 @@ export class FirestoreService {
     onSuccess: (entries: JournalEntry[]) => void,
     onError?: (error: Error) => void
   ) {
+    const key = `meu_norte_journal_${userId}`;
+    const deliverLocal = () => {
+      const entries = getLocal<JournalEntry[]>(key, []);
+      onSuccess(entries);
+    };
+    deliverLocal();
+
     if (isGuestUser(userId)) {
-      const key = `meu_norte_journal_${userId}`;
-      const deliver = () => {
-        const entries = getLocal<JournalEntry[]>(key, []);
-        onSuccess(entries);
-      };
-      deliver();
-      const listener = () => deliver();
+      const listener = () => deliverLocal();
       window.addEventListener(`meu_norte_journal_${userId}`, listener);
       return () => window.removeEventListener(`meu_norte_journal_${userId}`, listener);
     }
@@ -496,61 +508,72 @@ export class FirestoreService {
         snapshot.forEach((docSnap) => {
           entries.push({ id: docSnap.id, ...(docSnap.data() as Omit<JournalEntry, 'id'>) });
         });
+        setLocal(key, entries);
         onSuccess(entries);
       },
-      onError
+      (err) => {
+        console.warn('Firestore journal snapshot offline mode:', err?.message || err);
+        deliverLocal();
+        if (onError) onError(err);
+      }
     );
   }
 
   static async saveJournalEntry(userId: string, entry: Partial<JournalEntry> & { id?: string }): Promise<string> {
     const now = new Date().toISOString();
     const id = entry.id || `journal-${Date.now()}`;
-
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_journal_${userId}`;
-      const entries = getLocal<JournalEntry[]>(key, []);
-      const idx = entries.findIndex((e) => e.id === id);
-      const existing = idx >= 0 ? entries[idx] : null;
-      const updated: JournalEntry = {
-        id,
-        date: getTodayString(),
-        text: '',
-        createdAt: entry.createdAt || now,
-        updatedAt: now,
-        ...existing,
-        ...entry,
-      };
-      if (idx >= 0) {
-        entries[idx] = updated;
-      } else {
-        entries.unshift(updated);
-      }
-      setLocal(key, entries);
-      triggerLocalUpdate(userId, 'journal');
-      return id;
-    }
-
-    const docRef = doc(db, 'users', userId, 'journal', id);
-    const data = {
-      ...entry,
+    const key = `meu_norte_journal_${userId}`;
+    const entries = getLocal<JournalEntry[]>(key, []);
+    const idx = entries.findIndex((e) => e.id === id);
+    const existing = idx >= 0 ? entries[idx] : null;
+    const updated: JournalEntry = {
       id,
-      updatedAt: now,
+      date: getTodayString(),
+      text: '',
       createdAt: entry.createdAt || now,
+      updatedAt: now,
+      ...existing,
+      ...entry,
     };
-    await setDoc(docRef, data, { merge: true });
+    if (idx >= 0) {
+      entries[idx] = updated;
+    } else {
+      entries.unshift(updated);
+    }
+    setLocal(key, entries);
+    triggerLocalUpdate(userId, 'journal');
+
+    if (isGuestUser(userId)) return id;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'journal', id);
+      const data = {
+        ...entry,
+        id,
+        updatedAt: now,
+        createdAt: entry.createdAt || now,
+      };
+      await setDoc(docRef, data, { merge: true });
+    } catch (err: any) {
+      console.warn('Journal entry saved locally (Firestore offline):', err?.message || err);
+    }
     return id;
   }
 
   static async deleteJournalEntry(userId: string, entryId: string): Promise<void> {
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_journal_${userId}`;
-      const entries = getLocal<JournalEntry[]>(key, []);
-      setLocal(key, entries.filter((e) => e.id !== entryId));
-      triggerLocalUpdate(userId, 'journal');
-      return;
+    const key = `meu_norte_journal_${userId}`;
+    const entries = getLocal<JournalEntry[]>(key, []);
+    setLocal(key, entries.filter((e) => e.id !== entryId));
+    triggerLocalUpdate(userId, 'journal');
+
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'journal', entryId);
+      await deleteDoc(docRef);
+    } catch (err: any) {
+      console.warn('Journal entry deletion saved locally (Firestore offline):', err?.message || err);
     }
-    const docRef = doc(db, 'users', userId, 'journal', entryId);
-    await deleteDoc(docRef);
   }
 
   // Subscribe Categories
@@ -559,14 +582,15 @@ export class FirestoreService {
     onSuccess: (cats: CategoryItem[]) => void,
     onError?: (error: Error) => void
   ) {
+    const key = `meu_norte_categories_${userId}`;
+    const deliverLocal = () => {
+      const items = getLocal<CategoryItem[]>(key, DEFAULT_CATEGORIES);
+      onSuccess(items);
+    };
+    deliverLocal();
+
     if (isGuestUser(userId)) {
-      const key = `meu_norte_categories_${userId}`;
-      const deliver = () => {
-        const items = getLocal<CategoryItem[]>(key, DEFAULT_CATEGORIES);
-        onSuccess(items);
-      };
-      deliver();
-      const listener = () => deliver();
+      const listener = () => deliverLocal();
       window.addEventListener(`meu_norte_categories_${userId}`, listener);
       return () => window.removeEventListener(`meu_norte_categories_${userId}`, listener);
     }
@@ -579,44 +603,54 @@ export class FirestoreService {
         snapshot.forEach((docSnap) => {
           items.push({ id: docSnap.id, ...(docSnap.data() as Omit<CategoryItem, 'id'>) });
         });
-        if (items.length === 0) {
-          onSuccess(DEFAULT_CATEGORIES);
-        } else {
-          onSuccess(items);
-        }
+        const finalCats = items.length === 0 ? DEFAULT_CATEGORIES : items;
+        setLocal(key, finalCats);
+        onSuccess(finalCats);
       },
-      onError
+      (err) => {
+        console.warn('Firestore categories snapshot offline mode:', err?.message || err);
+        deliverLocal();
+        if (onError) onError(err);
+      }
     );
   }
 
   static async saveCategory(userId: string, cat: CategoryItem): Promise<void> {
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_categories_${userId}`;
-      const cats = getLocal<CategoryItem[]>(key, DEFAULT_CATEGORIES);
-      const idx = cats.findIndex((c) => c.id === cat.id);
-      if (idx >= 0) {
-        cats[idx] = cat;
-      } else {
-        cats.push(cat);
-      }
-      setLocal(key, cats);
-      triggerLocalUpdate(userId, 'categories');
-      return;
+    const key = `meu_norte_categories_${userId}`;
+    const cats = getLocal<CategoryItem[]>(key, DEFAULT_CATEGORIES);
+    const idx = cats.findIndex((c) => c.id === cat.id);
+    if (idx >= 0) {
+      cats[idx] = cat;
+    } else {
+      cats.push(cat);
     }
-    const docRef = doc(db, 'users', userId, 'categories', cat.id);
-    await setDoc(docRef, cat, { merge: true });
+    setLocal(key, cats);
+    triggerLocalUpdate(userId, 'categories');
+
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'categories', cat.id);
+      await setDoc(docRef, cat, { merge: true });
+    } catch (err: any) {
+      console.warn('Category saved locally (Firestore offline):', err?.message || err);
+    }
   }
 
   static async deleteCategory(userId: string, catId: string): Promise<void> {
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_categories_${userId}`;
-      const cats = getLocal<CategoryItem[]>(key, DEFAULT_CATEGORIES);
-      setLocal(key, cats.filter((c) => c.id !== catId));
-      triggerLocalUpdate(userId, 'categories');
-      return;
+    const key = `meu_norte_categories_${userId}`;
+    const cats = getLocal<CategoryItem[]>(key, DEFAULT_CATEGORIES);
+    setLocal(key, cats.filter((c) => c.id !== catId));
+    triggerLocalUpdate(userId, 'categories');
+
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'categories', catId);
+      await deleteDoc(docRef);
+    } catch (err: any) {
+      console.warn('Category deletion saved locally (Firestore offline):', err?.message || err);
     }
-    const docRef = doc(db, 'users', userId, 'categories', catId);
-    await deleteDoc(docRef);
   }
 
   // Subscribe Objectives
@@ -625,14 +659,15 @@ export class FirestoreService {
     onSuccess: (objs: UserObjective[]) => void,
     onError?: (error: Error) => void
   ) {
+    const key = `meu_norte_objectives_${userId}`;
+    const deliverLocal = () => {
+      const items = getLocal<UserObjective[]>(key, []);
+      onSuccess(items);
+    };
+    deliverLocal();
+
     if (isGuestUser(userId)) {
-      const key = `meu_norte_objectives_${userId}`;
-      const deliver = () => {
-        const items = getLocal<UserObjective[]>(key, []);
-        onSuccess(items);
-      };
-      deliver();
-      const listener = () => deliver();
+      const listener = () => deliverLocal();
       window.addEventListener(`meu_norte_objectives_${userId}`, listener);
       return () => window.removeEventListener(`meu_norte_objectives_${userId}`, listener);
     }
@@ -645,151 +680,189 @@ export class FirestoreService {
         snapshot.forEach((docSnap) => {
           items.push({ id: docSnap.id, ...(docSnap.data() as Omit<UserObjective, 'id'>) });
         });
+        setLocal(key, items);
         onSuccess(items);
       },
-      onError
+      (err) => {
+        console.warn('Firestore objectives snapshot offline mode:', err?.message || err);
+        deliverLocal();
+        if (onError) onError(err);
+      }
     );
   }
 
   static async saveObjective(userId: string, obj: Partial<UserObjective> & { id?: string }): Promise<void> {
     const id = obj.id || `obj-${Date.now()}`;
     const now = new Date().toISOString();
-
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_objectives_${userId}`;
-      const objs = getLocal<UserObjective[]>(key, []);
-      const idx = objs.findIndex((o) => o.id === id);
-      const existing = idx >= 0 ? objs[idx] : null;
-      const updated: UserObjective = {
-        id,
-        title: obj.title || '',
-        active: obj.active !== undefined ? obj.active : true,
-        createdAt: obj.createdAt || now,
-        ...existing,
-        ...obj,
-      };
-      if (idx >= 0) {
-        objs[idx] = updated;
-      } else {
-        objs.push(updated);
-      }
-      setLocal(key, objs);
-      triggerLocalUpdate(userId, 'objectives');
-      return;
-    }
-
-    const docRef = doc(db, 'users', userId, 'objectives', id);
-    const data = {
-      ...obj,
+    const key = `meu_norte_objectives_${userId}`;
+    const objs = getLocal<UserObjective[]>(key, []);
+    const idx = objs.findIndex((o) => o.id === id);
+    const existing = idx >= 0 ? objs[idx] : null;
+    const updated: UserObjective = {
       id,
+      title: obj.title || '',
       active: obj.active !== undefined ? obj.active : true,
       createdAt: obj.createdAt || now,
+      ...existing,
+      ...obj,
     };
-    await setDoc(docRef, data, { merge: true });
+    if (idx >= 0) {
+      objs[idx] = updated;
+    } else {
+      objs.push(updated);
+    }
+    setLocal(key, objs);
+    triggerLocalUpdate(userId, 'objectives');
+
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'objectives', id);
+      const data = {
+        ...obj,
+        id,
+        active: obj.active !== undefined ? obj.active : true,
+        createdAt: obj.createdAt || now,
+      };
+      await setDoc(docRef, data, { merge: true });
+    } catch (err: any) {
+      console.warn('Objective saved locally (Firestore offline):', err?.message || err);
+    }
   }
 
   static async deleteObjective(userId: string, objId: string): Promise<void> {
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_objectives_${userId}`;
-      const objs = getLocal<UserObjective[]>(key, []);
-      setLocal(key, objs.filter((o) => o.id !== objId));
-      triggerLocalUpdate(userId, 'objectives');
-      return;
+    const key = `meu_norte_objectives_${userId}`;
+    const objs = getLocal<UserObjective[]>(key, []);
+    setLocal(key, objs.filter((o) => o.id !== objId));
+    triggerLocalUpdate(userId, 'objectives');
+
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId, 'objectives', objId);
+      await deleteDoc(docRef);
+    } catch (err: any) {
+      console.warn('Objective deletion saved locally (Firestore offline):', err?.message || err);
     }
-    const docRef = doc(db, 'users', userId, 'objectives', objId);
-    await deleteDoc(docRef);
   }
 
   // User Profile
   static async getUserProfile(userId: string): Promise<UserProfile | null> {
+    const localKey = `meu_norte_profile_${userId}`;
+    const localProf = getLocal<UserProfile | null>(localKey, null);
+
     if (isGuestUser(userId)) {
-      return getLocal<UserProfile | null>(`meu_norte_profile_${userId}`, {
-        uid: userId,
-        email: '',
-        displayName: 'Convidado',
-        onboarded: true,
-        createdAt: new Date().toISOString(),
-      });
+      return (
+        localProf || {
+          uid: userId,
+          email: '',
+          displayName: 'Convidado',
+          onboarded: true,
+          createdAt: new Date().toISOString(),
+        }
+      );
     }
 
-    const docRef = doc(db, 'users', userId);
-    const snap = await getDoc(docRef);
-    if (!snap.exists()) return null;
-    return snap.data() as UserProfile;
+    try {
+      const docRef = doc(db, 'users', userId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data() as UserProfile;
+        setLocal(localKey, data);
+        return data;
+      }
+      if (localProf) return localProf;
+      return null;
+    } catch (err: any) {
+      // Offline fallback: return cached profile or a default profile to keep app fully functional
+      console.warn('Firestore profile offline fallback:', err?.message || err);
+      if (localProf) return localProf;
+
+      const fallback: UserProfile = {
+        uid: userId,
+        email: auth.currentUser?.email || '',
+        displayName:
+          auth.currentUser?.displayName ||
+          (auth.currentUser?.email ? auth.currentUser.email.split('@')[0] : 'Usuário'),
+        onboarded: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setLocal(localKey, fallback);
+      return fallback;
+    }
   }
 
   static async saveUserProfile(userId: string, profile: Partial<UserProfile>): Promise<void> {
     const now = new Date().toISOString();
-    if (isGuestUser(userId)) {
-      const key = `meu_norte_profile_${userId}`;
-      const existing = getLocal<UserProfile | null>(key, null) || {
-        uid: userId,
-        email: '',
-        displayName: 'Convidado',
-        onboarded: true,
-        createdAt: now,
-      };
-      const updated = { ...existing, ...profile, uid: userId, updatedAt: now };
-      setLocal(key, updated);
-      triggerLocalUpdate(userId, 'profile');
-      return;
-    }
+    const key = `meu_norte_profile_${userId}`;
+    const existing = getLocal<UserProfile | null>(key, null) || {
+      uid: userId,
+      email: '',
+      displayName: 'Usuário',
+      onboarded: true,
+      createdAt: now,
+    };
+    const updated = { ...existing, ...profile, uid: userId, updatedAt: now };
+    setLocal(key, updated);
+    triggerLocalUpdate(userId, 'profile');
 
-    const docRef = doc(db, 'users', userId);
-    await setDoc(docRef, { ...profile, uid: userId, updatedAt: now }, { merge: true });
+    if (isGuestUser(userId)) return;
+
+    try {
+      const docRef = doc(db, 'users', userId);
+      await setDoc(docRef, { ...profile, uid: userId, updatedAt: now }, { merge: true });
+    } catch (err: any) {
+      console.warn('Firestore profile save deferred (offline mode):', err?.message || err);
+    }
   }
 
   // Bootstrap initial user data on first sign-up / onboarding
   static async initializeFirstTimeUser(userId: string, email: string, displayName: string): Promise<void> {
     const now = new Date().toISOString();
-
-    if (isGuestUser(userId)) {
-      const profile: UserProfile = {
-        uid: userId,
-        email: email || '',
-        displayName: displayName || 'Convidado',
-        onboarded: true,
-        createdAt: now,
-        updatedAt: now,
-      };
-      setLocal(`meu_norte_profile_${userId}`, profile);
-      setLocal(`meu_norte_categories_${userId}`, DEFAULT_CATEGORIES);
-      setLocal(
-        `meu_norte_routine_${userId}`,
-        DEFAULT_INITIAL_ROUTINE.map((r, idx) => ({ ...r, id: `default-routine-${idx}` }))
-      );
-      triggerLocalUpdate(userId, 'profile');
-      triggerLocalUpdate(userId, 'categories');
-      triggerLocalUpdate(userId, 'routine');
-      return;
-    }
-
-    const batch = writeBatch(db);
-
-    // User profile doc
-    const userDoc = doc(db, 'users', userId);
-    batch.set(userDoc, {
+    const profile: UserProfile = {
       uid: userId,
       email: email || '',
-      displayName: displayName || email.split('@')[0] || 'Usuário',
-      onboarded: false,
+      displayName: displayName || (email ? email.split('@')[0] : 'Usuário'),
+      onboarded: true,
       createdAt: now,
       updatedAt: now,
-    });
+    };
+    setLocal(`meu_norte_profile_${userId}`, profile);
+    setLocal(`meu_norte_categories_${userId}`, DEFAULT_CATEGORIES);
+    setLocal(
+      `meu_norte_routine_${userId}`,
+      DEFAULT_INITIAL_ROUTINE.map((r, idx) => ({ ...r, id: `default-routine-${idx}` }))
+    );
+    triggerLocalUpdate(userId, 'profile');
+    triggerLocalUpdate(userId, 'categories');
+    triggerLocalUpdate(userId, 'routine');
 
-    // Default categories
-    DEFAULT_CATEGORIES.forEach((cat) => {
-      const catDoc = doc(db, 'users', userId, 'categories', cat.id);
-      batch.set(catDoc, cat);
-    });
+    if (isGuestUser(userId)) return;
 
-    // Default routine (Escola de seg a sex)
-    DEFAULT_INITIAL_ROUTINE.forEach((r, idx) => {
-      const rDoc = doc(db, 'users', userId, 'routine', `default-routine-${idx}`);
-      batch.set(rDoc, { ...r, id: `default-routine-${idx}` });
-    });
+    try {
+      const batch = writeBatch(db);
 
-    await batch.commit();
+      // User profile doc
+      const userDoc = doc(db, 'users', userId);
+      batch.set(userDoc, profile);
+
+      // Default categories
+      DEFAULT_CATEGORIES.forEach((cat) => {
+        const catDoc = doc(db, 'users', userId, 'categories', cat.id);
+        batch.set(catDoc, cat);
+      });
+
+      // Default routine (Escola de seg a sex)
+      DEFAULT_INITIAL_ROUTINE.forEach((r, idx) => {
+        const rDoc = doc(db, 'users', userId, 'routine', `default-routine-${idx}`);
+        batch.set(rDoc, { ...r, id: `default-routine-${idx}` });
+      });
+
+      await batch.commit();
+    } catch (err: any) {
+      console.warn('First time user Firestore init deferred (offline):', err?.message || err);
+    }
   }
 
   // Export all user data as clean structured JSON

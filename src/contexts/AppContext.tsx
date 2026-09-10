@@ -133,46 +133,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     notifySync('syncing', 'Sincronizando...');
 
+    const handleSyncError = (module: string) => (err: any) => {
+      console.warn(`Firestore ${module} offline or sync notice:`, err?.message || err);
+      notifySync('offline', 'Modo offline (salvo localmente)');
+    };
+
     const unsubTasks = FirestoreService.subscribeTasks(
       user.uid,
       (newTasks) => {
         setTasks(newTasks);
         notifySync('synced', 'Salvo');
       },
-      (err) => {
-        console.error(err);
-        notifySync('error', 'Erro de conexão');
-      }
+      handleSyncError('tarefas')
     );
 
     const unsubRoutine = FirestoreService.subscribeRoutine(
       user.uid,
       (newRoutine) => setRoutine(newRoutine),
-      console.error
+      handleSyncError('rotina')
     );
 
     const unsubLogs = FirestoreService.subscribeDailyLogs(
       user.uid,
       (newLogs) => setDailyLogs(newLogs),
-      console.error
+      handleSyncError('registros diários')
     );
 
     const unsubJournal = FirestoreService.subscribeJournal(
       user.uid,
       (newJournal) => setJournal(newJournal),
-      console.error
+      handleSyncError('diário')
     );
 
     const unsubCats = FirestoreService.subscribeCategories(
       user.uid,
       (newCats) => setCategories(newCats),
-      console.error
+      handleSyncError('categorias')
     );
 
     const unsubObjs = FirestoreService.subscribeObjectives(
       user.uid,
       (newObjs) => setObjectives(newObjs),
-      console.error
+      handleSyncError('objetivos')
     );
 
     return () => {

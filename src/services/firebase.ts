@@ -48,14 +48,24 @@ googleProvider.setCustomParameters({
 
 let dbInstance: Firestore;
 try {
-  dbInstance = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager(),
-    }),
-  }, databaseId);
+  if (databaseId && databaseId !== '(default)') {
+    dbInstance = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    }, databaseId);
+  } else {
+    dbInstance = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  }
 } catch {
   // If already initialized or persistent cache is unsupported in current iframe
-  dbInstance = getFirestore(app, databaseId);
+  dbInstance = (databaseId && databaseId !== '(default)')
+    ? getFirestore(app, databaseId)
+    : getFirestore(app);
 }
 
 export const db = dbInstance;

@@ -60,7 +60,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           setProfile(userProf);
         } catch (err: any) {
-          console.error('Error fetching profile:', err);
+          console.warn('Profile fetch offline fallback engaged:', err?.message || err);
+          const fallbackProf: UserProfile = {
+            uid: fbUser.uid,
+            email: fbUser.email || '',
+            displayName: fbUser.displayName || (fbUser.email ? fbUser.email.split('@')[0] : 'Usuário'),
+            onboarded: true,
+            createdAt: new Date().toISOString(),
+          };
+          setProfile(fallbackProf);
         }
       } else {
         // Check for local guest user session
