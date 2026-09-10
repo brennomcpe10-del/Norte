@@ -13,16 +13,25 @@ import {
 } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
 
-const firebaseConfig = {
-  apiKey: firebaseConfigData.apiKey,
-  authDomain: firebaseConfigData.authDomain,
-  projectId: firebaseConfigData.projectId,
-  storageBucket: firebaseConfigData.storageBucket,
-  messagingSenderId: firebaseConfigData.messagingSenderId,
-  appId: firebaseConfigData.appId,
-};
+const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfigData.projectId || 'meu-norte-a9aa3';
+const authDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigData.authDomain || `${projectId}.firebaseapp.com`;
+const storageBucket = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigData.storageBucket || `${projectId}.firebasestorage.app`;
+const apiKey = import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigData.apiKey;
+const messagingSenderId = import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigData.messagingSenderId;
+const appId = import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfigData.appId;
+const databaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || firebaseConfigData.firestoreDatabaseId || '(default)';
 
-const databaseId = firebaseConfigData.firestoreDatabaseId || '(default)';
+export const activeProjectId = projectId;
+export const activeDatabaseId = databaseId;
+
+const firebaseConfig = {
+  apiKey,
+  authDomain,
+  projectId,
+  storageBucket,
+  messagingSenderId,
+  appId,
+};
 
 let app: FirebaseApp;
 if (!getApps().length) {

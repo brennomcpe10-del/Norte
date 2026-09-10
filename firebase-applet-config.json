@@ -1,12 +1,12 @@
 {
-  "projectId": "gen-lang-client-0203549123",
+  "projectId": "meu-norte-a9aa3",
   "appId": "1:766705523210:web:2a89490347d5af8725ddf3",
   "apiKey": "AIzaSyAWrB0eXd34wntBM8n5DvYhrW6K3SSM7HI",
-  "authDomain": "gen-lang-client-0203549123.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-6b7ddc26-6460-4e60-ba6d-ea5f9a607339",
-  "storageBucket": "gen-lang-client-0203549123.firebasestorage.app",
+  "authDomain": "meu-norte-a9aa3.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "meu-norte-a9aa3.firebasestorage.app",
   "messagingSenderId": "766705523210",
   "measurementId": "",
-  "oAuthClientId": "766705523210-gdonf4nnvvtsckemdde1ad8f0vag3t1k.apps.googleusercontent.com",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }

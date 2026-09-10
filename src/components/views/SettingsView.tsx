@@ -12,9 +12,12 @@ import {
   AlertTriangle,
   LogOut,
   Sparkles,
+  ShieldCheck,
+  Cloud,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApp } from '../../contexts/AppContext';
+import { activeProjectId, activeDatabaseId } from '../../services/firebase';
 import { DAYS_OF_WEEK } from '../../constants/defaults';
 import { FixedRoutineItem, UserObjective } from '../../types';
 
@@ -350,7 +353,34 @@ export const SettingsView: React.FC = () => {
       <section className="p-6 bg-white rounded-3xl border border-slate-200/90 shadow-xs space-y-4">
         <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
           <Database className="w-5 h-5 text-slate-700" />
-          <h2 className="text-sm font-bold text-slate-900">Gerenciamento de Dados e Demonstração</h2>
+          <h2 className="text-sm font-bold text-slate-900">Gerenciamento de Dados e Conexão Firebase</h2>
+        </div>
+
+        {/* Active Firebase Connection Info */}
+        <div className="p-4 bg-slate-900 text-white rounded-2xl space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-sky-400" />
+              <span className="text-xs font-bold text-slate-100">Projeto Firebase Conectado</span>
+            </div>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <ShieldCheck className="w-3 h-3" />
+              Exclusivo
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-[11px] text-slate-300">
+            <div>
+              <span className="text-slate-400 block text-[10px] uppercase tracking-wider">Project ID</span>
+              <span className="font-mono font-semibold text-sky-300">{activeProjectId}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[10px] uppercase tracking-wider">Cloud Firestore DB</span>
+              <span className="font-mono font-semibold text-slate-200">{activeDatabaseId}</span>
+            </div>
+          </div>
+          <p className="text-[10px] text-slate-400 pt-1">
+            Autenticação, Firestore, persistência e sincronização vinculados exclusivamente ao seu projeto <strong>{activeProjectId}</strong>.
+          </p>
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
