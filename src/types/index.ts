@@ -96,6 +96,13 @@ export interface UserProfile {
   updatedAt?: string;
 }
 
+export interface AppUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  isGuest?: boolean;
+}
+
 export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error';
 
 export interface WeeklyReportSummary {

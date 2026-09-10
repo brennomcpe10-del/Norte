@@ -11,6 +11,7 @@ import {
   Check,
   AlertTriangle,
   LogOut,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApp } from '../../contexts/AppContext';
@@ -149,6 +150,22 @@ export const SettingsView: React.FC = () => {
 
       {/* Profile Section */}
       <section className="p-6 bg-white rounded-3xl border border-slate-200/90 shadow-xs space-y-4">
+        {user?.isGuest && (
+          <div className="p-4 bg-amber-50/90 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 text-xs text-amber-900">
+              <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Você está navegando no <strong>Modo Convidado</strong>. Seus dados estão salvos localmente. Deseja sincronizar na nuvem?</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => signOut()}
+              className="px-3.5 py-1.5 text-xs font-bold text-slate-900 bg-white hover:bg-amber-100 border border-amber-300 rounded-xl shrink-0 cursor-pointer shadow-xs"
+            >
+              Conectar Conta Google
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
           <User className="w-5 h-5 text-slate-700" />
           <h2 className="text-sm font-bold text-slate-900">Perfil Pessoal</h2>
@@ -175,7 +192,7 @@ export const SettingsView: React.FC = () => {
               <input
                 type="text"
                 disabled
-                value={user?.email || ''}
+                value={user?.email || (user?.isGuest ? 'Modo Convidado (Local)' : '')}
                 className="w-full px-3.5 py-2.5 text-xs bg-slate-100 border border-slate-200 text-slate-500 rounded-xl cursor-not-allowed"
               />
             </div>

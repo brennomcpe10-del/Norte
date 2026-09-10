@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Compass, Mail, Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
+import { Compass, Mail, Lock, User, AlertCircle, ArrowRight, Sparkles, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface AuthModalProps {
@@ -7,12 +7,22 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, authError, clearAuthError } = useAuth();
+  const {
+    signInWithGoogle,
+    signInWithEmail,
+    signUpWithEmail,
+    signInAsGuest,
+    resetPassword,
+    authError,
+    clearAuthError,
+  } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [isForgotPass, setIsForgotPass] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [guestName, setGuestName] = useState('');
+  const [showGuestInput, setShowGuestInput] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
 
@@ -52,13 +62,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
     }
   };
 
+  const handleGuestLogin = async () => {
+    clearAuthError();
+    setIsLoading(true);
+    try {
+      await signInAsGuest(guestName || displayName || 'Você');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div id="auth-screen-backdrop" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
-      <div id="auth-card" className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div id="auth-card" className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-auto max-h-[95vh] overflow-y-auto">
         {/* Brand header */}
-        <div className="p-8 pb-6 text-center bg-radial from-slate-50 to-slate-100/70 border-b border-slate-100">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-slate-900 text-white shadow-md mb-3">
-            <Compass className="w-8 h-8 stroke-[1.8]" />
+        <div className="p-6 sm:p-8 pb-5 text-center bg-radial from-slate-50 to-slate-100/70 border-b border-slate-100">
+          <div className="inline-flex items-center justify-center w-13 h-13 rounded-2xl bg-slate-900 text-white shadow-md mb-2.5">
+            <Compass className="w-7 h-7 stroke-[1.8]" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Meu Norte</h1>
           <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
@@ -66,10 +88,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
           </p>
         </div>
 
-        <div className="p-8 pt-6">
-          {/* Google Sign In */}
+        <div className="p-6 sm:p-8 pt-5">
+          {/* Quick Access / Google Sign In */}
           {!isForgotPass && (
-            <>
+            <div className="space-y-2.5">
+              {/* Google Sign In */}
               <button
                 id="google-signin-btn"
                 type="button"
@@ -77,7 +100,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
                 disabled={isLoading}
                 className="w-full flex items-center justify-center gap-3 px-4 py-3 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-2xl hover:bg-slate-50 active:bg-slate-100 transition-all shadow-xs cursor-pointer"
               >
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
                   <path
                     fill="#4285F4"
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -98,32 +121,84 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
                 <span>Continuar com o Google</span>
               </button>
 
-              <div className="relative my-6 text-center">
+              {/* Instant Guest / Local Mode Button */}
+              {!showGuestInput ? (
+                <button
+                  id="guest-signin-btn"
+                  type="button"
+                  onClick={() => setShowGuestInput(true)}
+                  disabled={isLoading}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition-all cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <span>Entrar no Modo Convidado (Sem login / Uso Imediato)</span>
+                </button>
+              ) : (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700">Entrar sem cadastro</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowGuestInput(false)}
+                      className="text-[11px] text-slate-400 hover:text-slate-600"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Seu nome ou apelido (opcional)"
+                    value={guestName}
+                    onChange={(e) => setGuestName(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-slate-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGuestLogin}
+                    disabled={isLoading}
+                    className="w-full py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Acessar o Meu Norte Agora
+                  </button>
+                </div>
+              )}
+
+              <div className="relative my-4 text-center">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-slate-200"></div>
                 </div>
                 <span className="relative px-3 bg-white text-xs text-slate-400 font-medium">
-                  ou use e-mail e senha
+                  ou acesse por e-mail e senha
                 </span>
               </div>
-            </>
+            </div>
           )}
 
           {/* Feedback errors */}
           {authError && (
-            <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
-              <span>{authError}</span>
+            <div className="mb-4 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex flex-col gap-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                <span className="leading-relaxed">{authError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleGuestLogin}
+                className="self-start text-[11px] font-bold text-rose-900 underline hover:no-underline pt-1 cursor-pointer"
+              >
+                👉 Clique aqui para entrar no Modo Convidado e usar o app agora
+              </button>
             </div>
           )}
 
           {successInfo && (
-            <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs">
-              {successInfo}
+            <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{successInfo}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-3.5">
             {isSignUp && !isForgotPass && (
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
@@ -214,7 +289,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
           </form>
 
           {/* Toggle Modes */}
-          <div className="mt-6 text-center text-xs text-slate-500">
+          <div className="mt-5 text-center text-xs text-slate-500">
             {isForgotPass ? (
               <button
                 type="button"

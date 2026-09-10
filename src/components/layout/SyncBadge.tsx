@@ -1,9 +1,24 @@
 import React from 'react';
-import { Cloud, CloudOff, RefreshCw, Check } from 'lucide-react';
+import { Cloud, CloudOff, RefreshCw, Check, HardDrive } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 export const SyncBadge: React.FC = () => {
   const { syncStatus, syncMessage, isOnline } = useApp();
+  const { user } = useAuth();
+
+  if (user?.isGuest) {
+    return (
+      <div
+        id="sync-badge-guest"
+        className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-full transition-all"
+        title="Seus dados estão sendo salvos com segurança no armazenamento local deste navegador"
+      >
+        <HardDrive className="w-3 h-3 text-slate-500" />
+        <span>Salvo localmente</span>
+      </div>
+    );
+  }
 
   if (!isOnline || syncStatus === 'offline') {
     return (
