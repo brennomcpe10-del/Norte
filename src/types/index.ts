@@ -49,6 +49,8 @@ export interface DailyLog {
   bedTime?: string; // "23:00"
   wakeTime?: string; // "07:00"
   sleepHours?: number;
+  sleepQuality?: number; // 1 (ruim) to 5 (excelente)
+  stress?: number; // 1 (baixo) to 5 (alto)
   energy?: number; // 1 (muito baixa) to 5 (excelente)
   mood?: number; // 1 (péssimo) to 5 (muito bem)
   overload?: number; // 1 (tranquilo) to 5 (sobrecarregado)
@@ -63,6 +65,7 @@ export interface JournalEntry {
   date: string; // YYYY-MM-DD
   title?: string;
   text: string;
+  content?: string;
   mood?: number; // 1 to 5
   createdAt: string;
   updatedAt: string;

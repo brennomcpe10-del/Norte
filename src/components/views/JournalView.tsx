@@ -5,7 +5,8 @@ import { getTodayString, formatDateToPtBR } from '../../utils/dateUtils';
 import { JournalEntry } from '../../types';
 
 export const JournalView: React.FC = () => {
-  const { journalEntries, saveJournalEntry, deleteJournalEntry, todayDate } = useApp();
+  const { journal, journalEntries, saveJournalEntry, deleteJournalEntry, todayDate } = useApp();
+  const entries = journalEntries || journal || [];
 
   const [date, setDate] = useState(todayDate);
   const [content, setContent] = useState('');
@@ -14,7 +15,7 @@ export const JournalView: React.FC = () => {
   const [selectedEntry, setSelectedEntry] = useState<JournalEntry | null>(null);
 
   // Check if an entry for the selected date already exists
-  const existingTodayEntry = journalEntries.find((e) => e.date === todayDate);
+  const existingTodayEntry = entries.find((e) => e?.date === todayDate);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,6 +26,7 @@ export const JournalView: React.FC = () => {
       await saveJournalEntry({
         id: selectedEntry?.id,
         date,
+        text: content.trim(),
         content: content.trim(),
         mood,
       });
@@ -40,7 +42,7 @@ export const JournalView: React.FC = () => {
   const handleSelectEntry = (entry: JournalEntry) => {
     setSelectedEntry(entry);
     setDate(entry.date);
-    setContent(entry.text);
+    setContent(entry.text || entry.content || '');
     setMood(entry.mood);
   };
 
@@ -178,13 +180,13 @@ export const JournalView: React.FC = () => {
         <div className="space-y-3">
           <h2 className="text-sm font-bold text-slate-900">Histórico de Registros</h2>
 
-          {journalEntries.length === 0 ? (
+          {entries.length === 0 ? (
             <div className="p-6 text-center bg-white rounded-2xl border border-slate-200/80 text-xs text-slate-400">
               Nenhuma anotação anterior. Seu diário começará assim que você salvar a primeira reflexão.
             </div>
           ) : (
             <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1">
-              {journalEntries.map((entry) => {
+              {entries.map((entry) => {
                 const isSelected = selectedEntry?.id === entry.id;
                 return (
                   <button
@@ -212,7 +214,7 @@ export const JournalView: React.FC = () => {
                       )}
                     </div>
                     <p className={`text-xs line-clamp-3 leading-relaxed ${isSelected ? 'text-slate-200' : 'text-slate-600'}`}>
-                      {entry.text}
+                      {entry.text || entry.content}
                     </p>
                   </button>
                 );

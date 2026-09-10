@@ -32,6 +32,7 @@ interface AppContextType {
   routine: FixedRoutineItem[];
   dailyLogs: DailyLog[];
   journal: JournalEntry[];
+  journalEntries: JournalEntry[];
   categories: CategoryItem[];
   objectives: UserObjective[];
   syncStatus: SyncStatus;
@@ -56,6 +57,7 @@ interface AppContextType {
   saveObjective: (obj: Partial<UserObjective>) => Promise<void>;
   deleteObjective: (id: string) => Promise<void>;
   seedSampleData: () => Promise<void>;
+  seedDemoData: () => Promise<void>;
   clearSampleData: () => Promise<void>;
   distributeWeek: () => Promise<{ success: boolean; message: string; isOverloaded: boolean }>;
 
@@ -86,7 +88,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [quickAddModalOpen, setQuickAddModalOpen] = useState<boolean>(false);
 
   const todayDate = getTodayString();
-  const todayLog = dailyLogs.find((l) => l.date === todayDate);
+  const todayLog = (dailyLogs || []).find((l) => l?.date === todayDate);
 
   const notifySync = useCallback((status: SyncStatus, msg: string) => {
     setSyncStatus(status);
@@ -133,48 +135,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     notifySync('syncing', 'Sincronizando...');
 
-    const handleSyncError = (module: string) => (err: any) => {
-      console.warn(`Firestore ${module} offline or sync notice:`, err?.message || err);
-      notifySync('offline', 'Modo offline (salvo localmente)');
-    };
-
     const unsubTasks = FirestoreService.subscribeTasks(
       user.uid,
       (newTasks) => {
         setTasks(newTasks);
         notifySync('synced', 'Salvo');
       },
-      handleSyncError('tarefas')
+      (err) => {
+        console.error(err);
+        notifySync('error', 'Erro de conexão');
+      }
     );
 
     const unsubRoutine = FirestoreService.subscribeRoutine(
       user.uid,
       (newRoutine) => setRoutine(newRoutine),
-      handleSyncError('rotina')
+      console.error
     );
 
     const unsubLogs = FirestoreService.subscribeDailyLogs(
       user.uid,
       (newLogs) => setDailyLogs(newLogs),
-      handleSyncError('registros diários')
+      console.error
     );
 
     const unsubJournal = FirestoreService.subscribeJournal(
       user.uid,
       (newJournal) => setJournal(newJournal),
-      handleSyncError('diário')
+      console.error
     );
 
     const unsubCats = FirestoreService.subscribeCategories(
       user.uid,
       (newCats) => setCategories(newCats),
-      handleSyncError('categorias')
+      console.error
     );
 
     const unsubObjs = FirestoreService.subscribeObjectives(
       user.uid,
       (newObjs) => setObjectives(newObjs),
-      handleSyncError('objetivos')
+      console.error
     );
 
     return () => {
@@ -416,6 +416,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         routine,
         dailyLogs,
         journal,
+        journalEntries: journal,
         categories,
         objectives,
         syncStatus,
@@ -438,6 +439,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         saveObjective,
         deleteObjective,
         seedSampleData,
+        seedDemoData: seedSampleData,
         clearSampleData,
         distributeWeek,
         taskToReportIncomplete,

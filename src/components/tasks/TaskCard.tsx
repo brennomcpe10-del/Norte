@@ -14,7 +14,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showDate = false }) =>
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState(task.title);
 
-  const categoryObj = categories.find((c) => c.name.toLowerCase() === task.category?.toLowerCase());
+  const categoryObj = (categories || []).find((c) => c?.name?.toLowerCase() === task?.category?.toLowerCase());
   const categoryColor = categoryObj?.color || '#475569';
 
   const isCompleted = task.status === 'completed';
