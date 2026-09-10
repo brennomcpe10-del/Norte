@@ -1,0 +1,6 @@
+{
+  "name": "Meu Norte",
+  "description": "Sistema pessoal de direção para planejamento semanal realista de estudos, rotina, sono e bem-estar.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
